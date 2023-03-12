@@ -1459,8 +1459,6 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 	struct blk_plug plug;
 	struct madvise_behavior madv_behavior = {.behavior = behavior};
 
-	start = untagged_addr(start);
-
 	if (!madvise_behavior_valid(behavior))
 		return -EINVAL;
 
@@ -1491,6 +1489,9 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 	} else {
 		mmap_read_lock(mm);
 	}
+
+	start = untagged_addr_remote(mm, start);
+	end = start + len;
 
 	blk_start_plug(&plug);
 	error = madvise_walk_vmas(mm, start, end, &madv_behavior,
