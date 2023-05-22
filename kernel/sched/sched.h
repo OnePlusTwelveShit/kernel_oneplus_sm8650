@@ -1275,7 +1275,8 @@ static inline raw_spinlock_t *__rq_lockp(struct rq *rq)
 	return &rq->__lock;
 }
 
-bool cfs_prio_less(struct task_struct *a, struct task_struct *b, bool fi);
+bool cfs_prio_less(const struct task_struct *a, const struct task_struct *b,
+			bool fi);
 
 /*
  * Helpers to check if the CPU's core cookie matches with the task's cookie
