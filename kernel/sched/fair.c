@@ -7406,7 +7406,7 @@ eenv_pd_max_util(struct energy_env *eenv, struct cpumask *pd_cpus,
 	for_each_cpu(cpu, pd_cpus) {
 		struct task_struct *tsk = (cpu == dst_cpu) ? p : NULL;
 		unsigned long util = cpu_util(cpu, p, dst_cpu, 1);
-		unsigned long cpu_util, min, max;
+		unsigned long eff_util, min, max;
 
 		/*
 		 * Performance domain frequency: utilization clamping
@@ -7415,7 +7415,7 @@ eenv_pd_max_util(struct energy_env *eenv, struct cpumask *pd_cpus,
 		 * NOTE: in case RT tasks are running, by default the
 		 * FREQUENCY_UTIL's utilization can be max OPP.
 		 */
-		cpu_util = effective_cpu_util(cpu, util, &min, &max);
+		eff_util = effective_cpu_util(cpu, util, &min, &max);
 
 		/* Task's uclamp can modify min and max value */
 		if (tsk && uclamp_is_used()) {
@@ -7431,8 +7431,8 @@ eenv_pd_max_util(struct energy_env *eenv, struct cpumask *pd_cpus,
 				max = max(max, uclamp_eff_value(p, UCLAMP_MAX));
 		}
 
-		cpu_util = sugov_effective_cpu_perf(cpu, cpu_util, min, max);
-		max_util = max(max_util, cpu_util);
+		eff_util = sugov_effective_cpu_perf(cpu, eff_util, min, max);
+		max_util = max(max_util, eff_util);
 	}
 
 	return min(max_util, eenv->cpu_cap);
