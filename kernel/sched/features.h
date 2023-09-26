@@ -12,12 +12,17 @@ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 /*
  * Preserve relative virtual deadline on 'migration'.
  */
-#define SCHED_FEAT_PLACE_REL_DEADLINE 1
+SCHED_FEAT(PLACE_REL_DEADLINE, true)
 /*
  * Inhibit (wakeup) preemption until the current task has either matched the
  * 0-lag point or until is has exhausted it's slice.
  */
 SCHED_FEAT(RUN_TO_PARITY, true)
+/*
+ * Allow wakeup of tasks with a shorter slice to cancel RESPECT_SLICE for
+ * current.
+ */
+SCHED_FEAT(PREEMPT_SHORT, true)
 
 /*
  * Prefer to schedule the task we woke last (assuming it failed
@@ -41,8 +46,8 @@ SCHED_FEAT(CACHE_HOT_BUDDY, true)
  *
  * DELAY_ZERO clips the lag on dequeue (or wakeup) to 0.
  */
-#define SCHED_FEAT_DELAY_DEQUEUE 1
-#define SCHED_FEAT_DELAY_ZERO 1
+SCHED_FEAT(DELAY_DEQUEUE, true)
+SCHED_FEAT(DELAY_ZERO, true)
 
 /*
  * Allow wakeup-time preemption of the current task:
