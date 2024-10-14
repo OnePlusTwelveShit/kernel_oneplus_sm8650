@@ -1983,8 +1983,6 @@ static inline void dirty_sched_domain_sysctl(int cpu)
 extern int sched_update_scaling(void);
 #endif /* CONFIG_SMP */
 
-#include "stats.h"
-
 #if defined(CONFIG_SCHED_CORE) && defined(CONFIG_SCHEDSTATS)
 
 extern void __sched_core_account_forceidle(struct rq *rq);
@@ -2956,6 +2954,8 @@ extern void nohz_run_idle_balance(int cpu);
 #else
 static inline void nohz_run_idle_balance(int cpu) { }
 #endif
+
+#include "stats.h"
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 struct irqtime {
