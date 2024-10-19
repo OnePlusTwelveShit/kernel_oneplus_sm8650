@@ -3333,5 +3333,6 @@ extern bool cpu_busy_with_softirqs(int cpu);
 
 extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
 extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern bool dequeue_task(struct rq *rq, struct task_struct *p, int flags);
 
 #endif /* _KERNEL_SCHED_SCHED_H */
