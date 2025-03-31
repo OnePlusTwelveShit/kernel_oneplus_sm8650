@@ -5028,7 +5028,6 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 	rq->misfit_task_load = max_t(unsigned long, task_h_load(p), 1);
 	rq->misfit_reason = reason;
 }
-EXPORT_SYMBOL_GPL(update_misfit_status);
 
 #else /* CONFIG_SMP */
 
@@ -5359,7 +5358,6 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
-EXPORT_SYMBOL_GPL(set_next_entity);
 
 /*
  * Pick the next process, keeping these things in mind, in this order:
