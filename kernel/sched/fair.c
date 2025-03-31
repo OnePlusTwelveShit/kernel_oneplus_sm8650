@@ -5078,7 +5078,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	u64 vslice, vruntime = avg_vruntime(cfs_rq);
 	s64 lag = 0;
 
-	trace_android_rvh_place_entity(cfs_rq, se, initial, &vruntime);
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
 
@@ -8232,7 +8231,6 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	int next_buddy_marked = 0;
 	int cse_is_idle, pse_is_idle;
 	bool ignore = false;
-	bool preempt = false;
 
 	if (unlikely(se == pse))
 		return;
