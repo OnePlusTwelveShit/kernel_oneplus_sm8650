@@ -9802,41 +9802,6 @@ static inline bool smt_balance(struct lb_env *env, struct sg_lb_stats *sgs,
 	return false;
 }
 
-static inline long sibling_imbalance(struct lb_env *env,
-				    struct sd_lb_stats *sds,
-				    struct sg_lb_stats *busiest,
-				    struct sg_lb_stats *local)
-{
-	int ncores_busiest, ncores_local;
-	long imbalance;
-
-	if (env->idle == CPU_NOT_IDLE || !busiest->sum_nr_running)
-		return 0;
-
-	ncores_busiest = sds->busiest->cores;
-	ncores_local = sds->local->cores;
-
-	if (ncores_busiest == ncores_local) {
-		imbalance = busiest->sum_nr_running;
-		lsub_positive(&imbalance, local->sum_nr_running);
-		return imbalance;
-	}
-
-	/* Balance such that nr_running/ncores ratio are same on both groups */
-	imbalance = ncores_local * busiest->sum_nr_running;
-	lsub_positive(&imbalance, ncores_busiest * local->sum_nr_running);
-	/* Normalize imbalance and do rounding on normalization */
-	imbalance = 2 * imbalance + ncores_local + ncores_busiest;
-	imbalance /= ncores_local + ncores_busiest;
-
-	/* Take advantage of resource in an empty sched group */
-	if (imbalance <= 1 && local->sum_nr_running == 0 &&
-	    busiest->sum_nr_running > 1)
-		imbalance = 2;
-
-	return imbalance;
-}
-
 static inline bool
 sched_reduced_capacity(struct rq *rq, struct sched_domain *sd)
 {
@@ -10701,12 +10666,14 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 		}
 
 		if (busiest->group_weight == 1 || sds->prefer_sibling) {
+			unsigned int nr_diff = busiest->sum_nr_running;
 			/*
 			 * When prefer sibling, evenly spread running tasks on
 			 * groups.
 			 */
 			env->migration_type = migrate_task;
-			env->imbalance = sibling_imbalance(env, sds, busiest, local);
+			lsub_positive(&nr_diff, local->sum_nr_running);
+			env->imbalance = nr_diff;
 		} else {
 
 			/*
@@ -10907,7 +10874,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	 * group's child domain.
 	 */
 	if (sds.prefer_sibling && local->group_type == group_has_spare &&
-	    sibling_imbalance(env, &sds, busiest, local) > 1)
+	    busiest->sum_nr_running > local->sum_nr_running + 1)
 		goto force_balance;
 
 	if (busiest->group_type != group_overloaded) {
