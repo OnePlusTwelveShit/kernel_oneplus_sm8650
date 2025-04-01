@@ -139,7 +139,7 @@ static inline void psi_enqueue(struct task_struct *p, int flags)
 		return;
 
 	/* psi_sched_switch() will handle the flags */
-	if (task_running(task_rq(p), p))
+	if (task_on_cpu(task_rq(p), p))
 		return;
 
 	if (p->se.sched_delayed) {

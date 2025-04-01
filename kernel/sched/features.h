@@ -38,7 +38,7 @@ SCHED_FEAT(NEXT_BUDDY, false)
  *   - yield_to_task()
  *   - cgroup dequeue / pick
  */
-#define SCHED_FEAT_PICK_BUDDY 1
+SCHED_FEAT(PICK_BUDDY, true)
 
 /*
  * Consider buddies to be cache hot, decreases the likeliness of a

@@ -1034,7 +1034,7 @@ static bool update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	trace_android_rvh_update_deadline(cfs_rq, se, &skip_preempt);
 	if (skip_preempt)
-		return;
+		return false;
 
 	if ((s64)(se->vruntime - se->deadline) < 0)
 		return false;
@@ -8600,7 +8600,6 @@ pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 	struct sched_entity *se = NULL;
 	struct task_struct *p = NULL;
 	int new_tasks;
-	bool repick = false;
 
 again:
 	p = pick_task_fair(rq);
@@ -13255,7 +13254,7 @@ int sched_group_set_idle(struct task_group *tg, long idle)
 				parent_cfs_rq->idle_nr_running--;
 		}
 
-		idle_task_delta = grp_cfs_rq->h_nr_queued -
+		idle_delta = grp_cfs_rq->h_nr_queued -
 				  grp_cfs_rq->h_nr_idle;
 		if (!cfs_rq_is_idle(grp_cfs_rq))
 			idle_delta *= -1;
