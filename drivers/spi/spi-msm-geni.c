@@ -45,6 +45,7 @@
 #define SE_SPI_DELAY_COUNTERS	(0x278)
 #define SE_SPI_SLAVE_EN		(0x2BC)
 #define SPI_SLAVE_EN		BIT(0)
+#define SE_GENI_CFG_SEQ_START   0x84
 
 /* SE_SPI_CPHA register fields */
 #define CPHA			(BIT(0))
