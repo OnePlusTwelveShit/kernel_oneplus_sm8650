@@ -243,7 +243,6 @@
 
 /* Register E7h */
 #define NU2112A_REG_E7 0xE7
-
 /************************UFCS REG***********************************/
 #define UFCS_BTB_TEMP_MAX 80
 #define UFCS_USB_TEMP_MAX 80
@@ -341,4 +340,5 @@
 #define NU2112A_MASK_SND_CMP BIT(2)
 
 #endif /*_OPLUS_NU2112A_H_*/
+
 
