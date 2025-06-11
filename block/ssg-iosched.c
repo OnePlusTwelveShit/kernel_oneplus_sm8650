@@ -11,7 +11,6 @@
 #include <linux/fs.h>
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
-#include <linux/elevator.h>
 #include <linux/bio.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -20,26 +19,15 @@
 #include <linux/rbtree.h>
 #include <linux/sbitmap.h>
 
+#include <trace/events/block.h>
+
 #include "blk.h"
+#include "elevator.h"
 #include "blk-mq.h"
 #include "blk-mq-debugfs.h"
 #include "blk-mq-tag.h"
 #include "blk-mq-sched.h"
-#include "ssg-cgroup.h"
-
-#include <trace/events/block.h>
-
-#if IS_ENABLED(CONFIG_BLK_SEC_STATS)
-extern void blk_sec_stats_account_init(struct request_queue *q);
-extern void blk_sec_stats_account_exit(struct elevator_queue *eq);
-extern void blk_sec_stats_account_io_done(
-		struct request *rq, unsigned int data_size,
-		pid_t tgid, const char *tg_name, u64 tg_start_time);
-#else
-#define blk_sec_stats_account_init(q)	do {} while(0)
-#define blk_sec_stats_account_exit(eq)	do {} while(0)
-#define blk_sec_stats_account_io_done(rq, size, tgid, name, time) do {} while(0)
-#endif
+#include "ssg.h"
 
 #define MAX_ASYNC_WRITE_RQS	8
 
@@ -49,59 +37,6 @@ static const int max_write_starvation = 2;	/* max times reads can starve a write
 static const int congestion_threshold = 90;	/* percentage of congestion threshold */
 static const int max_tgroup_io_ratio = 50;	/* maximum service ratio for each thread group */
 static const int max_async_write_ratio = 25;	/* maximum service ratio for async write */
-
-struct ssg_request_info {
-	pid_t tgid;
-	char tg_name[TASK_COMM_LEN];
-	u64 tg_start_time;
-
-	struct blkcg_gq *blkg;
-
-	unsigned int data_size;
-};
-
-struct ssg_data {
-	struct request_queue *queue;
-
-	/*
-	 * requests are present on both sort_list and fifo_list
-	 */
-	struct rb_root sort_list[2];
-	struct list_head fifo_list[2];
-
-	/*
-	 * next in sort order. read, write or both are NULL
-	 */
-	struct request *next_rq[2];
-	unsigned int starved_writes;	/* times reads have starved writes */
-
-	/*
-	 * settings that change how the i/o scheduler behaves
-	 */
-	int fifo_expire[2];
-	int max_write_starvation;
-	int front_merges;
-
-	/*
-	 * to control request allocation
-	 */
-	atomic_t allocated_rqs;
-	atomic_t async_write_rqs;
-	int congestion_threshold_rqs;
-	int max_tgroup_rqs;
-	int max_async_write_rqs;
-	unsigned int tgroup_shallow_depth;	/* thread group shallow depth for each tag map */
-	unsigned int async_write_shallow_depth;	/* async write shallow depth for each tag map */
-
-	/*
-	 * I/O context information for each request
-	 */
-	struct ssg_request_info *rq_info;
-
-	spinlock_t lock;
-	spinlock_t zone_lock;
-	struct list_head dispatch;
-};
 
 static inline struct rb_root *ssg_rb_root(struct ssg_data *ssg, struct request *rq)
 {
@@ -423,8 +358,10 @@ static struct request *ssg_dispatch_request(struct blk_mq_hw_ctx *hctx)
 	spin_unlock(&ssg->lock);
 
 	rqi = ssg_rq_info(ssg, rq);
-	if (likely(rqi))
+	if (likely(rqi)) {
+		rqi->sector = blk_rq_pos(rq);
 		rqi->data_size = blk_rq_bytes(rq);
+	}
 
 	return rq;
 }
@@ -435,9 +372,9 @@ static void ssg_completed_request(struct request *rq, u64 now)
 	struct ssg_request_info *rqi;
 
 	rqi = ssg_rq_info(ssg, rq);
-	if (likely(rqi))
-		blk_sec_stats_account_io_done(rq, rqi->data_size,
-				rqi->tgid, rqi->tg_name, rqi->tg_start_time);
+	if (likely(rqi && rqi->sector == blk_rq_pos(rq))) {
+		ssg_stat_account_io_done(ssg, rq, rqi->data_size, now);
+	}
 }
 
 static void ssg_set_shallow_depth(struct ssg_data *ssg, struct blk_mq_tags *tags)
@@ -467,7 +404,7 @@ static void ssg_depth_updated(struct blk_mq_hw_ctx *hctx)
 
 	kfree(ssg->rq_info);
 	ssg->rq_info = kmalloc_array(depth, sizeof(struct ssg_request_info),
-				     GFP_KERNEL | __GFP_ZERO);
+			GFP_KERNEL | __GFP_ZERO);
 	if (ZERO_OR_NULL_PTR(ssg->rq_info))
 		ssg->rq_info = NULL;
 
@@ -476,6 +413,7 @@ static void ssg_depth_updated(struct blk_mq_hw_ctx *hctx)
 			ssg->async_write_shallow_depth);
 
 	ssg_blkcg_depth_updated(hctx);
+	ssg_wb_depth_updated(hctx);
 }
 
 static inline bool ssg_op_is_async_write(unsigned int op)
@@ -554,10 +492,11 @@ static void ssg_exit_queue(struct elevator_queue *e)
 	BUG_ON(!list_empty(&ssg->fifo_list[READ]));
 	BUG_ON(!list_empty(&ssg->fifo_list[WRITE]));
 
+	ssg_stat_exit(ssg);
+	ssg_wb_exit(ssg);
+
 	kfree(ssg->rq_info);
 	kfree(ssg);
-
-	blk_sec_stats_account_exit(e);
 }
 
 /*
@@ -593,8 +532,9 @@ static int ssg_init_queue(struct request_queue *q, struct elevator_type *e)
 	atomic_set(&ssg->async_write_rqs, 0);
 	ssg->congestion_threshold_rqs =
 		q->nr_requests * congestion_threshold / 100U;
-	ssg->rq_info = kmalloc_array(q->nr_requests, sizeof(struct ssg_request_info),
-				     GFP_KERNEL | __GFP_ZERO);
+	ssg->rq_info = kmalloc_array(q->nr_requests,
+			sizeof(struct ssg_request_info),
+			GFP_KERNEL | __GFP_ZERO);
 	if (ZERO_OR_NULL_PTR(ssg->rq_info))
 		ssg->rq_info = NULL;
 
@@ -606,7 +546,10 @@ static int ssg_init_queue(struct request_queue *q, struct elevator_type *e)
 
 	q->elevator = eq;
 
-	blk_sec_stats_account_init(q);
+	ssg_stat_init(ssg);
+	blk_stat_enable_accounting(q);
+	ssg_wb_init(ssg);
+
 	return 0;
 }
 
@@ -626,9 +569,6 @@ static int ssg_request_merge(struct request_queue *q, struct request **rq,
 
 		if (elv_bio_merge_ok(__rq, bio)) {
 			*rq = __rq;
-
-			if (blk_discard_mergable(__rq))
-				return ELEVATOR_DISCARD_MERGE;
 			return ELEVATOR_FRONT_MERGE;
 		}
 	}
@@ -720,19 +660,21 @@ static void ssg_insert_requests(struct blk_mq_hw_ctx *hctx,
  * Nothing to do here. This is defined only to ensure that .finish_request
  * method is called upon request completion.
  */
-static void ssg_prepare_request(struct request *rq, struct bio *bio)
+static void ssg_prepare_request(struct request *rq)
 {
 	struct ssg_data *ssg = rq->q->elevator->elevator_data;
 	struct ssg_request_info *rqi;
 
 	atomic_inc(&ssg->allocated_rqs);
 
+	ssg_wb_ctrl(ssg, rq);
+
 	rqi = ssg_rq_info(ssg, rq);
 	if (likely(rqi)) {
 		rqi->tgid = task_tgid_nr(current->group_leader);
 
 		rcu_read_lock();
-		rqi->blkg = blkg_lookup(css_to_blkcg(blkcg_css()), rq->q);
+		rqi->blkg = blkg_lookup(css_to_blkcg(curr_css()), rq->q);
 		ssg_blkcg_inc_rq(rqi->blkg);
 		rcu_read_unlock();
 	}
@@ -854,9 +796,10 @@ STORE_FUNCTION(ssg_front_merges_store, &ssg->front_merges, 0, 1, 0);
 
 #define SSG_ATTR(name) \
 	__ATTR(name, 0644, ssg_##name##_show, ssg_##name##_store)
-
 #define SSG_ATTR_RO(name) \
 	__ATTR(name, 0444, ssg_##name##_show, NULL)
+#define SSG_STAT_ATTR_RO(name) \
+	__ATTR(name, 0444, ssg_stat_##name##_show, NULL)
 
 static struct elv_fs_entry ssg_attrs[] = {
 	SSG_ATTR(read_expire),
@@ -865,117 +808,29 @@ static struct elv_fs_entry ssg_attrs[] = {
 	SSG_ATTR(front_merges),
 	SSG_ATTR_RO(tgroup_shallow_depth),
 	SSG_ATTR_RO(async_write_shallow_depth),
+
+	SSG_STAT_ATTR_RO(read_latency),
+	SSG_STAT_ATTR_RO(write_latency),
+	SSG_STAT_ATTR_RO(flush_latency),
+	SSG_STAT_ATTR_RO(discard_latency),
+	SSG_STAT_ATTR_RO(inflight),
+	SSG_STAT_ATTR_RO(rqs_info),
+
+#if IS_ENABLED(CONFIG_MQ_IOSCHED_SSG_WB)
+	SSG_ATTR(wb_on_rqs),
+	SSG_ATTR(wb_off_rqs),
+	SSG_ATTR(wb_on_dirty_bytes),
+	SSG_ATTR(wb_off_dirty_bytes),
+	SSG_ATTR(wb_on_sync_write_bytes),
+	SSG_ATTR(wb_off_sync_write_bytes),
+	SSG_ATTR(wb_on_dirty_busy_written_bytes),
+	SSG_ATTR(wb_on_dirty_busy_msecs),
+	SSG_ATTR(wb_off_delay_msecs),
+	SSG_ATTR_RO(wb_triggered),
+#endif
+
 	__ATTR_NULL
 };
-
-#ifdef CONFIG_BLK_DEBUG_FS
-#define SSG_DEBUGFS_DDIR_ATTRS(ddir, name)				\
-static void *ssg_##name##_fifo_start(struct seq_file *m,		\
-					  loff_t *pos)			\
-	__acquires(&ssg->lock)						\
-{									\
-	struct request_queue *q = m->private;				\
-	struct ssg_data *ssg = q->elevator->elevator_data;		\
-									\
-	spin_lock(&ssg->lock);						\
-	return seq_list_start(&ssg->fifo_list[ddir], *pos);		\
-}									\
-									\
-static void *ssg_##name##_fifo_next(struct seq_file *m, void *v,	\
-					 loff_t *pos)			\
-{									\
-	struct request_queue *q = m->private;				\
-	struct ssg_data *ssg = q->elevator->elevator_data;		\
-									\
-	return seq_list_next(v, &ssg->fifo_list[ddir], pos);		\
-}									\
-									\
-static void ssg_##name##_fifo_stop(struct seq_file *m, void *v)	\
-	__releases(&ssg->lock)						\
-{									\
-	struct request_queue *q = m->private;				\
-	struct ssg_data *ssg = q->elevator->elevator_data;		\
-									\
-	spin_unlock(&ssg->lock);					\
-}									\
-									\
-static const struct seq_operations ssg_##name##_fifo_seq_ops = {	\
-	.start	= ssg_##name##_fifo_start,				\
-	.next	= ssg_##name##_fifo_next,				\
-	.stop	= ssg_##name##_fifo_stop,				\
-	.show	= blk_mq_debugfs_rq_show,				\
-};									\
-									\
-static int ssg_##name##_next_rq_show(void *data,			\
-					  struct seq_file *m)		\
-{									\
-	struct request_queue *q = data;					\
-	struct ssg_data *ssg = q->elevator->elevator_data;		\
-	struct request *rq = ssg->next_rq[ddir];			\
-									\
-	if (rq)								\
-		__blk_mq_debugfs_rq_show(m, rq);			\
-	return 0;							\
-}
-SSG_DEBUGFS_DDIR_ATTRS(READ, read)
-SSG_DEBUGFS_DDIR_ATTRS(WRITE, write)
-#undef SSG_DEBUGFS_DDIR_ATTRS
-
-static int ssg_starved_writes_show(void *data, struct seq_file *m)
-{
-	struct request_queue *q = data;
-	struct ssg_data *ssg = q->elevator->elevator_data;
-
-	seq_printf(m, "%u\n", ssg->starved_writes);
-	return 0;
-}
-
-static void *ssg_dispatch_start(struct seq_file *m, loff_t *pos)
-	__acquires(&ssg->lock)
-{
-	struct request_queue *q = m->private;
-	struct ssg_data *ssg = q->elevator->elevator_data;
-
-	spin_lock(&ssg->lock);
-	return seq_list_start(&ssg->dispatch, *pos);
-}
-
-static void *ssg_dispatch_next(struct seq_file *m, void *v, loff_t *pos)
-{
-	struct request_queue *q = m->private;
-	struct ssg_data *ssg = q->elevator->elevator_data;
-
-	return seq_list_next(v, &ssg->dispatch, pos);
-}
-
-static void ssg_dispatch_stop(struct seq_file *m, void *v)
-	__releases(&ssg->lock)
-{
-	struct request_queue *q = m->private;
-	struct ssg_data *ssg = q->elevator->elevator_data;
-
-	spin_unlock(&ssg->lock);
-}
-
-static const struct seq_operations ssg_dispatch_seq_ops = {
-	.start	= ssg_dispatch_start,
-	.next	= ssg_dispatch_next,
-	.stop	= ssg_dispatch_stop,
-	.show	= blk_mq_debugfs_rq_show,
-};
-
-#define SSG_IOSCHED_QUEUE_DDIR_ATTRS(name)						\
-	{#name "_fifo_list", 0400, .seq_ops = &ssg_##name##_fifo_seq_ops},	\
-	{#name "_next_rq", 0400, ssg_##name##_next_rq_show}
-static const struct blk_mq_debugfs_attr ssg_queue_debugfs_attrs[] = {
-	SSG_IOSCHED_QUEUE_DDIR_ATTRS(read),
-	SSG_IOSCHED_QUEUE_DDIR_ATTRS(write),
-	{"starved_writes", 0400, ssg_starved_writes_show},
-	{"dispatch", 0400, .seq_ops = &ssg_dispatch_seq_ops},
-	{},
-};
-#undef SSG_IOSCHED_QUEUE_DDIR_ATTRS
-#endif
 
 static struct elevator_type ssg_iosched = {
 	.ops = {
@@ -998,9 +853,6 @@ static struct elevator_type ssg_iosched = {
 		.exit_sched = ssg_exit_queue,
 	},
 
-#ifdef CONFIG_BLK_DEBUG_FS
-	.queue_debugfs_attrs = ssg_queue_debugfs_attrs,
-#endif
 	.elevator_attrs = ssg_attrs,
 	.elevator_name = "ssg",
 	.elevator_alias = "ssg",

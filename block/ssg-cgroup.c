@@ -8,9 +8,10 @@
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
 
+#include "blk-cgroup.h"
 #include "blk-mq.h"
 #include "blk-mq-tag.h"
-#include "ssg-cgroup.h"
+#include "ssg.h"
 
 
 
@@ -91,6 +92,8 @@ static void ssg_blkcg_pd_init(struct blkg_policy_data *pd)
 {
 	struct ssg_blkg *ssg_blkg;
 	struct ssg_blkcg *ssg_blkcg;
+	struct blk_mq_hw_ctx *hctx;
+	unsigned long i;
 
 	ssg_blkg = PD_TO_SSG_BLKG(pd);
 	if (IS_ERR_OR_NULL(ssg_blkg))
@@ -101,8 +104,9 @@ static void ssg_blkcg_pd_init(struct blkg_policy_data *pd)
 		return;
 
 	atomic_set(&ssg_blkg->current_rqs, 0);
-	ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
-			pd->blkg->q->queue_hw_ctx[0]->sched_tags);
+	queue_for_each_hw_ctx(pd->blkg->q, hctx, i)
+		ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
+				hctx->sched_tags);
 }
 
 static void ssg_blkcg_pd_free(struct blkg_policy_data *pd)
@@ -121,7 +125,7 @@ unsigned int ssg_blkcg_shallow_depth(struct request_queue *q)
 	struct ssg_blkg *ssg_blkg;
 
 	rcu_read_lock();
-	blkg = blkg_lookup(css_to_blkcg(blkcg_css()), q);
+	blkg = blkg_lookup(css_to_blkcg(curr_css()), q);
 	ssg_blkg = BLKG_TO_SSG_BLKG(blkg);
 	rcu_read_unlock();
 
@@ -197,6 +201,8 @@ static int ssg_blkcg_set_max_available_ratio(struct cgroup_subsys_state *css,
 	struct ssg_blkcg *ssg_blkcg = CSS_TO_SSG_BLKCG(css);
 	struct blkcg_gq *blkg;
 	struct ssg_blkg *ssg_blkg;
+	struct blk_mq_hw_ctx *hctx;
+	unsigned long i;
 
 	if (IS_ERR_OR_NULL(ssg_blkcg))
 		return -EINVAL;
@@ -211,8 +217,9 @@ static int ssg_blkcg_set_max_available_ratio(struct cgroup_subsys_state *css,
 		if (IS_ERR_OR_NULL(ssg_blkg))
 			continue;
 
-		ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
-				blkg->q->queue_hw_ctx[0]->sched_tags);
+		queue_for_each_hw_ctx(blkg->q, hctx, i)
+			ssg_blkcg_set_shallow_depth(ssg_blkcg, ssg_blkg,
+					hctx->sched_tags);
 	}
 	spin_unlock_irq(&blkcg->lock);
 
