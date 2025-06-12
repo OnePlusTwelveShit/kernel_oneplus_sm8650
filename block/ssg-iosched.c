@@ -382,13 +382,15 @@ static void ssg_set_shallow_depth(struct ssg_data *ssg, struct blk_mq_tags *tags
 	unsigned int depth = tags->bitmap_tags.sb.depth;
 	unsigned int map_nr = tags->bitmap_tags.sb.map_nr;
 
-	ssg->max_async_write_rqs = depth * max_async_write_ratio / 100U;
+	ssg->max_async_write_rqs =
+		max_t(int, depth * max_async_write_ratio / 100U, 1);
 	ssg->max_async_write_rqs =
 		min_t(int, ssg->max_async_write_rqs, MAX_ASYNC_WRITE_RQS);
 	ssg->async_write_shallow_depth =
 		max_t(unsigned int, ssg->max_async_write_rqs / map_nr, 1);
 
-	ssg->max_tgroup_rqs = depth * max_tgroup_io_ratio / 100U;
+	ssg->max_tgroup_rqs =
+		max_t(int, depth * max_tgroup_io_ratio / 100U, 1);
 	ssg->tgroup_shallow_depth =
 		max_t(unsigned int, ssg->max_tgroup_rqs / map_nr, 1);
 }
@@ -494,6 +496,7 @@ static void ssg_exit_queue(struct elevator_queue *e)
 
 	ssg_stat_exit(ssg);
 	ssg_wb_exit(ssg);
+	blk_stat_disable_accounting(ssg->queue);
 
 	kfree(ssg->rq_info);
 	kfree(ssg);
@@ -667,7 +670,7 @@ static void ssg_prepare_request(struct request *rq)
 
 	atomic_inc(&ssg->allocated_rqs);
 
-	ssg_wb_ctrl(ssg, rq);
+	ssg_wb_run_ctrl_work(ssg, rq);
 
 	rqi = ssg_rq_info(ssg, rq);
 	if (likely(rqi)) {
@@ -768,6 +771,8 @@ SHOW_FUNCTION(ssg_read_expire_show, ssg->fifo_expire[READ], 1);
 SHOW_FUNCTION(ssg_write_expire_show, ssg->fifo_expire[WRITE], 1);
 SHOW_FUNCTION(ssg_max_write_starvation_show, ssg->max_write_starvation, 0);
 SHOW_FUNCTION(ssg_front_merges_show, ssg->front_merges, 0);
+SHOW_FUNCTION(ssg_max_tgroup_rqs_show, ssg->max_tgroup_rqs, 0);
+SHOW_FUNCTION(ssg_max_async_write_rqs_show, ssg->max_async_write_rqs, 0);
 SHOW_FUNCTION(ssg_tgroup_shallow_depth_show, ssg->tgroup_shallow_depth, 0);
 SHOW_FUNCTION(ssg_async_write_shallow_depth_show, ssg->async_write_shallow_depth, 0);
 #undef SHOW_FUNCTION
@@ -806,6 +811,8 @@ static struct elv_fs_entry ssg_attrs[] = {
 	SSG_ATTR(write_expire),
 	SSG_ATTR(max_write_starvation),
 	SSG_ATTR(front_merges),
+	SSG_ATTR_RO(max_tgroup_rqs),
+	SSG_ATTR_RO(max_async_write_rqs),
 	SSG_ATTR_RO(tgroup_shallow_depth),
 	SSG_ATTR_RO(async_write_shallow_depth),
 
