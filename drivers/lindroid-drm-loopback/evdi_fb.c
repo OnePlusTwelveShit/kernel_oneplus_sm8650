@@ -266,7 +266,7 @@ struct drm_framebuffer *evdi_fb_user_fb_create(
 	int bpp = evdi_fb_get_bpp(mode_cmd->pixel_format);
 	uint32_t handle;
 	ssize_t bytes_read;
-	struct evdi_device *evdi = dev->dev_private;
+	//struct evdi_device *evdi = dev->dev_private;
 
 	size = mode_cmd->offsets[0] + mode_cmd->pitches[0] * mode_cmd->height;
 	size = ALIGN(size, PAGE_SIZE);

@@ -12,6 +12,9 @@
  */
 
 #include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+#include <linux/file.h>
+#endif
 #if KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE || defined(EL8) || defined(EL9)
 #include <drm/drm_ioctl.h>
 #include <drm/drm_file.h>
@@ -249,7 +252,7 @@ int evdi_add_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 	int *buff_id_ptr = kzalloc(sizeof(int), GFP_KERNEL);
 	*buff_id_ptr = cmd->buff_id;
 	event->reply_data = buff_id_ptr;
-	printk("evdi_add_buff_callback_ioctl go id: %d for poll_id: %d ptr: %d\n", cmd->buff_id, cmd->poll_id, event->reply_data);
+	//printk("evdi_add_buff_callback_ioctl go id: %d for poll_id: %d ptr: %d\n", cmd->buff_id, cmd->poll_id, event->reply_data);
 	event->result = 0;
 	event->completed = true;
 	wake_up(&event->wait);
@@ -279,9 +282,13 @@ int evdi_get_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 
 	printk("evdi_get_buff_callback_ioctl: Got buff version: %d, numFds: %d, numInts: %d\n", cmd->version, cmd->numFds, cmd->numInts);
 
-	copy_from_user(gralloc_buf->data_ints, cmd->data_ints, sizeof(int) * cmd->numInts);
+	if (copy_from_user(gralloc_buf->data_ints, cmd->data_ints, sizeof(int) * cmd->numInts))
+		return -EFAULT;
+
 	int *fd_ints = kzalloc(sizeof(int)*cmd->numFds, GFP_KERNEL);
-	copy_from_user(fd_ints, cmd->fd_ints, sizeof(int) * cmd->numFds);
+	if (copy_from_user(fd_ints, cmd->fd_ints, sizeof(int) * cmd->numFds))
+		return -EFAULT;
+
 	for(int i = 0; i < cmd->numFds; i++) {
 		gralloc_buf->data_files[i] = fget(fd_ints[i]);
 		if (!gralloc_buf->data_files[i]) {
@@ -345,7 +352,7 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 	struct file *memfd_file;
 	struct file *fd_file;
 	int ret;
-	uint32_t handle;
+	//uint32_t handle;
 	int version, numFds, numInts, fd;
 	ssize_t bytes_read;
 	struct evdi_gralloc_buf *add_gralloc_buf;
@@ -436,8 +443,8 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 	kfree(event);
 	return 0;
 
- err_no_mem:
-	return -ENOMEM;
+ //err_no_mem:
+ //	return -ENOMEM;
  err_inval:
 	return -EINVAL;
 }
@@ -552,8 +559,12 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 	}
 
 	struct drm_evdi_create_buff_callabck *cb_cmd = (struct drm_evdi_create_buff_callabck *)event->reply_data;
-	copy_to_user(cmd->id, &cb_cmd->id, sizeof(int));
-	copy_to_user(cmd->stride, &cb_cmd->stride, sizeof(int));
+	if (copy_to_user(cmd->id, &cb_cmd->id, sizeof(int)))
+		return -EFAULT;
+
+	if (copy_to_user(cmd->stride, &cb_cmd->stride, sizeof(int)))
+		return -EFAULT;
+
 	mutex_lock(&evdi->event_lock);
 	idr_remove(&evdi->event_idr, event->poll_id);
 	mutex_unlock(&evdi->event_lock);
@@ -634,12 +645,14 @@ int evdi_poll_ioctl(struct drm_device *drm_dev, void *data,
 			break;
 			}
 		case create_buf:
-			copy_to_user(cmd->data, event->data, sizeof(struct drm_evdi_gbm_create_buff));
+			if (copy_to_user(cmd->data, event->data, sizeof(struct drm_evdi_gbm_create_buff)))
+				return -EFAULT;
 			break;
 		case get_buf:
 		case swap_to:
 		case destroy_buf:
-			copy_to_user(cmd->data, event->data, sizeof(int));
+			if (copy_to_user(cmd->data, event->data, sizeof(int)))
+				return -EFAULT;
 			break;
 		default:
 			pr_err("unknown event: %d\n", cmd->event);

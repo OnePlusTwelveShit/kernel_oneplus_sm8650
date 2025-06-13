@@ -92,7 +92,7 @@ static void evdi_crtc_atomic_flush(
 
 	evdi_painter_set_vblank(evdi->painter, crtc, crtc_state->event);
 	evdi_painter_send_update_ready_if_needed(evdi->painter);
-	struct evdi_framebuffer *efb = evdi->painter->scanout_fb;
+	//struct evdi_framebuffer *efb = evdi->painter->scanout_fb;
 	printk("evdi_atomic_helper_page_flip\n");
 //	int ret = wait_event_interruptible(evdi->poll_response_ioct_wq, !evdi->poll_done);
 
@@ -215,7 +215,7 @@ static void evdi_disable_vblank(__always_unused struct drm_crtc *crtc)
 #endif
 
 void evdi_vblank(struct evdi_device *evdi) {
-	struct evdi_framebuffer *efb = evdi->painter->scanout_fb;
+	//struct evdi_framebuffer *efb = evdi->painter->scanout_fb;
 }
 
 int evdi_atomic_helper_page_flip(struct drm_crtc *crtc,
