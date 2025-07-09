@@ -1481,28 +1481,32 @@ static void msm_gpio_irq_relres(struct irq_data *d)
 static int msm_gpio_irq_set_affinity(struct irq_data *d,
 				const struct cpumask *dest, bool force)
 {
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct msm_pinctrl *pctrl = gpiochip_get_data(gc);
-	unsigned int i, n_dir_conns = pctrl->n_dir_conns;
-	struct irq_data *gpio_irq_data;
-	struct msm_dir_conn *dc = NULL;
+	if (!IS_ENABLED(CONFIG_IRQ_SBALANCE)) {
+		struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+		struct msm_pinctrl *pctrl = gpiochip_get_data(gc);
+		unsigned int i, n_dir_conns = pctrl->n_dir_conns;
+		struct irq_data *gpio_irq_data;
+		struct msm_dir_conn *dc = NULL;
 
-	for (i = n_dir_conns; i > 0; i--) {
-		dc = &pctrl->soc->dir_conn[i];
-		gpio_irq_data = irq_get_irq_data(dc->irq);
+		for (i = n_dir_conns; i > 0; i--) {
+			dc = &pctrl->soc->dir_conn[i];
+			gpio_irq_data = irq_get_irq_data(dc->irq);
 
-		if (!gpio_irq_data || !(gpio_irq_data->chip) ||
-				!(gpio_irq_data->chip->irq_set_affinity))
-			continue;
+			if (!gpio_irq_data || !(gpio_irq_data->chip) ||
+					!(gpio_irq_data->chip->irq_set_affinity))
+				continue;
 
-		if (d->hwirq == dc->gpio)
-			return gpio_irq_data->chip->irq_set_affinity(gpio_irq_data, dest, force);
+			if (d->hwirq == dc->gpio)
+				return gpio_irq_data->chip->irq_set_affinity(gpio_irq_data, dest, force);
+		}
+
+		if (d->parent_data && test_bit(d->hwirq, pctrl->skip_wake_irqs))
+			return irq_chip_set_affinity_parent(d, dest, force);
+
+		return -EINVAL;
+	} else {
+		return -EINVAL;
 	}
-
-	if (d->parent_data && test_bit(d->hwirq, pctrl->skip_wake_irqs))
-		return irq_chip_set_affinity_parent(d, dest, force);
-
-	return -EINVAL;
 }
 
 static int msm_gpio_irq_set_irqchip_state(struct irq_data *d, enum irqchip_irq_state which,
