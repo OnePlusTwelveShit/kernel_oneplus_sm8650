@@ -284,9 +284,10 @@ int evdi_get_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 	gralloc_buf->data_ints = kzalloc(sizeof(int)*cmd->numInts, GFP_KERNEL);
 	gralloc_buf->data_files = kzalloc(sizeof(struct file*)*cmd->numFds, GFP_KERNEL);
 
-	copy_from_user(gralloc_buf->data_ints, cmd->data_ints, sizeof(int) * cmd->numInts);
+	(void)copy_from_user(gralloc_buf->data_ints, cmd->data_ints, sizeof(int) * cmd->numInts);
+
 	fd_ints = kzalloc(sizeof(int)*cmd->numFds, GFP_KERNEL);
-	copy_from_user(fd_ints, cmd->fd_ints, sizeof(int) * cmd->numFds);
+	(void)copy_from_user(fd_ints, cmd->fd_ints, sizeof(int) * cmd->numFds);
 	
 	for (i = 0; i < cmd->numFds; i++) {
 		gralloc_buf->data_files[i] = fget(fd_ints[i]);
@@ -555,8 +556,9 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 	}
 
 	cb_cmd = (struct drm_evdi_create_buff_callabck *)event->reply_data;
-	copy_to_user(cmd->id, &cb_cmd->id, sizeof(int));
-	copy_to_user(cmd->stride, &cb_cmd->stride, sizeof(int));
+	(void)copy_to_user(cmd->id, &cb_cmd->id, sizeof(int));
+	(void)copy_to_user(cmd->stride, &cb_cmd->stride, sizeof(int));
+
 	mutex_lock(&evdi->event_lock);
 	idr_remove(&evdi->event_idr, event->poll_id);
 	mutex_unlock(&evdi->event_lock);
@@ -638,12 +640,12 @@ int evdi_poll_ioctl(struct drm_device *drm_dev, void *data,
 			break;
 			}
 		case create_buf:
-			copy_to_user(cmd->data, event->data, sizeof(struct drm_evdi_gbm_create_buff));
+			(void)copy_to_user(cmd->data, event->data, sizeof(struct drm_evdi_gbm_create_buff));
 			break;
 		case get_buf:
 		case swap_to:
 		case destroy_buf:
-			copy_to_user(cmd->data, event->data, sizeof(int));
+			(void)copy_to_user(cmd->data, event->data, sizeof(int));
 			break;
 		default:
 			pr_err("unknown event: %d\n", cmd->event);
