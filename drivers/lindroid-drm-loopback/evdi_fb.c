@@ -123,9 +123,6 @@ static int evdi_user_framebuffer_dirty(
 	}
 	state->acquire_ctx = &ctx;
 
-	for (i = 0; i < num_clips; ++i)
-		evdi_painter_mark_dirty(evdi, &clips[i]);
-
 retry:
 
 	drm_for_each_plane(plane, fb->dev) {

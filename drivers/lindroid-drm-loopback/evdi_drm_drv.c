@@ -81,23 +81,6 @@ int evdi_create_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 static struct kmem_cache *evdi_event_cache;
 static atomic_t evdi_event_cache_users = ATOMIC_INIT(0);
 
-struct drm_ioctl_desc evdi_painter_ioctls[] = {
-	DRM_IOCTL_DEF_DRV(EVDI_CONNECT, evdi_painter_connect_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_REQUEST_UPDATE, evdi_painter_request_update_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GRABPIX, evdi_painter_grabpix_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_ENABLE_CURSOR_EVENTS, evdi_painter_enable_cursor_events_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_POLL, evdi_poll_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_SWAP_CALLBACK, evdi_swap_callback_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_ADD_BUFF_CALLBACK, evdi_add_buff_callback_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GET_BUFF_CALLBACK, evdi_get_buff_callback_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_DESTROY_BUFF_CALLBACK, evdi_destroy_buff_callback_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GBM_ADD_BUFF, evdi_gbm_add_buf_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GBM_GET_BUFF, evdi_gbm_get_buf_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GBM_DEL_BUFF, evdi_gbm_del_buf_ioctl, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GBM_CREATE_BUFF, evdi_gbm_create_buff, EVDI_DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(EVDI_GBM_CREATE_BUFF_CALLBACK, evdi_create_buff_callback_ioctl, EVDI_DRM_UNLOCKED),
-};
-
 #if KERNEL_VERSION(5, 11, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
 static const struct vm_operations_struct evdi_gem_vm_ops = {
@@ -222,8 +205,8 @@ static struct drm_driver driver = {
 	.dumb_destroy = drm_gem_dumb_destroy,
 #endif
 
-	.ioctls = evdi_painter_ioctls,
-	.num_ioctls = ARRAY_SIZE(evdi_painter_ioctls),
+	.ioctls = NULL,
+	.num_ioctls = 0,
 
 	.fops = &evdi_driver_fops,
 
@@ -1076,7 +1059,6 @@ static void evdi_drm_device_release_cb(__always_unused struct drm_device *dev,
 	struct evdi_device *evdi = dev->dev_private;
 
 	evdi_cursor_free(evdi->cursor);
-	evdi_painter_cleanup(evdi->painter);
 	kfree(evdi);
 	dev->dev_private = NULL;
 	EVDI_INFO("Evdi drm_device removed.\n");
@@ -1120,9 +1102,6 @@ static int evdi_drm_device_init(struct drm_device *dev)
 #endif
 	atomic_set(&evdi->next_event_id, 1);
 
-	ret = evdi_painter_init(evdi);
-	if (ret)
-		goto err_free;
 	ret =  evdi_cursor_init(&evdi->cursor);
 	if (ret)
 		goto err_free;
@@ -1165,15 +1144,6 @@ int evdi_driver_open(struct drm_device *dev, __always_unused struct drm_file *fi
 	return 0;
 }
 
-static void evdi_driver_close(struct drm_device *drm_dev, struct drm_file *file)
-{
-	struct evdi_device *evdi = drm_dev->dev_private;
-
-	EVDI_CHECKPT();
-	if (evdi)
-		evdi_painter_close(evdi, file);
-}
-
 void evdi_driver_preclose(struct drm_device *drm_dev, struct drm_file *file)
 {
 	struct evdi_device *evdi = drm_dev->dev_private;
@@ -1182,7 +1152,6 @@ void evdi_driver_preclose(struct drm_device *drm_dev, struct drm_file *file)
 		wake_up_all(&evdi->poll_ioct_wq);
 		wake_up_all(&evdi->poll_response_ioct_wq);
 	}
-	evdi_driver_close(drm_dev, file);
 }
 
 void evdi_driver_postclose(struct drm_device *dev, struct drm_file *file)
@@ -1190,7 +1159,6 @@ void evdi_driver_postclose(struct drm_device *dev, struct drm_file *file)
 	char buf[100];
 
 	evdi_log_process(buf, sizeof(buf));
-	evdi_driver_close(dev, file);
 	evdi_cancel_events_for_file(dev->dev_private, file);
 	EVDI_INFO("(card%d) Closed by %s\n", dev->primary->index, buf);
 }

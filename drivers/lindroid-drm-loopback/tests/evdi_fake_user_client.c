@@ -71,8 +71,6 @@ void evdi_fake_user_client_connect(struct kunit *test, struct drm_device *device
 	if (copy_to_user((unsigned char * __user)connect_data.edid, test_edid_dvi_1080p, sizeof(test_edid_dvi_1080p)))
 		KUNIT_FAIL(test, "Failed to copy edid to userspace memory");
 	user_data->file = mock_drm_getfile(device->primary, O_RDWR);
-
-	evdi_painter_connect_ioctl(device, &connect_data, user_data->file->private_data);
 }
 
 void evdi_fake_user_client_disconnect(struct kunit *test, struct drm_device *device)

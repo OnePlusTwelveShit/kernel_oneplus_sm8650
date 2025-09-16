@@ -48,7 +48,6 @@ static int compat_evdi_grabpix(struct file *file,
 {
 	struct drm_evdi_grabpix32 req32;
 	struct drm_evdi_grabpix krequest;
-	int ret;
 
 	if (copy_from_user(&req32, (void __user *)arg, sizeof(req32)))
 		return -EFAULT;
@@ -60,10 +59,6 @@ static int compat_evdi_grabpix(struct file *file,
 	krequest.buffer = compat_ptr(req32.buffer_ptr32);
 	krequest.num_rects = req32.num_rects;
 	krequest.rects = compat_ptr(req32.rects_ptr32);
-
-	ret = drm_ioctl_kernel(file, evdi_painter_grabpix_ioctl, &krequest, 0);
-	if (ret)
-		return ret;
 
 	req32.num_rects = krequest.num_rects;
 	if (copy_to_user((void __user *)arg, &req32, sizeof(req32)))

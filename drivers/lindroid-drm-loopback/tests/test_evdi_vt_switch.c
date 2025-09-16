@@ -129,7 +129,6 @@ static void test_evdi_painter_when_connected_does_not_send_dpms_off_event_when_f
 	data->vt_notifier->notifier_call(data->vt_notifier, 0, NULL);
 
 	KUNIT_EXPECT_EQ(test, data->dpms_mode, DRM_MODE_DPMS_ON);
-	KUNIT_EXPECT_FALSE(test, evdi_painter_needs_full_modeset(evdi->painter));
 }
 
 static void test_evdi_painter_when_connected_sends_dpms_off_event_on_fg_console_change(struct kunit *test)
@@ -142,7 +141,6 @@ static void test_evdi_painter_when_connected_sends_dpms_off_event_on_fg_console_
 	data->vt_notifier->notifier_call(data->vt_notifier, 0, NULL);
 
 	KUNIT_EXPECT_EQ(test, data->dpms_mode, DRM_MODE_DPMS_OFF);
-	KUNIT_EXPECT_TRUE(test, evdi_painter_needs_full_modeset(evdi->painter));
 }
 
 static struct kunit_case evdi_test_cases[] = {

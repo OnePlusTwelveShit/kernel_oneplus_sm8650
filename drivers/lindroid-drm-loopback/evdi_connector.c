@@ -116,22 +116,6 @@ static enum drm_mode_status evdi_mode_valid(struct drm_connector *connector,
 	return MODE_BAD;
 }
 
-static enum drm_connector_status
-evdi_detect(struct drm_connector *connector, __always_unused bool force)
-{
-	struct evdi_device *evdi = connector->dev->dev_private;
-
-	EVDI_CHECKPT();
-	if (evdi_painter_is_connected(evdi->painter)) {
-		EVDI_INFO("(card%d) Connector state: connected\n",
-			   evdi->dev_index);
-		return connector_status_connected;
-	}
-	EVDI_VERBOSE("(card%d) Connector state: disconnected\n",
-		   evdi->dev_index);
-	return connector_status_disconnected;
-}
-
 static void evdi_connector_destroy(struct drm_connector *connector)
 {
 	drm_connector_unregister(connector);
@@ -163,7 +147,6 @@ static struct drm_connector_helper_funcs evdi_connector_helper_funcs = {
 };
 
 static const struct drm_connector_funcs evdi_connector_funcs = {
-	.detect = evdi_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.destroy = evdi_connector_destroy,
 	.reset = drm_atomic_helper_connector_reset,

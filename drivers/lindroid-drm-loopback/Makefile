@@ -12,7 +12,7 @@ ifneq ($(DKMS_BUILD),)
 KERN_DIR := /lib/modules/$(KERNELRELEASE)/build
 
 ccflags-y := -Wno-error -isystem include/uapi/drm $(CFLAGS) $(EL8FLAG) $(EL9FLAG) $(RPIFLAG)
-evdi-lindroid-y := evdi_platform_drv.o evdi_platform_dev.o evdi_sysfs.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_drm_drv.o evdi_fb.o evdi_gem.o evdi_painter.o evdi_params.o evdi_cursor.o evdi_debug.o
+evdi-lindroid-y := evdi_platform_drv.o evdi_platform_dev.o evdi_sysfs.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_drm_drv.o evdi_fb.o evdi_gem.o evdi_params.o evdi_cursor.o evdi_debug.o
 evdi-lindroid-$(CONFIG_COMPAT) += evdi_ioc32.o
 obj-m := evdi-lindroid.o
 
@@ -28,7 +28,7 @@ clean:
 else
 
 ccflags-y := -isystem include/uapi/drm $(CFLAGS) $(EL8FLAG) $(EL9FLAG) $(RPIFLAG)
-evdi-y := evdi_platform_drv.o evdi_platform_dev.o evdi_sysfs.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_drm_drv.o evdi_fb.o evdi_gem.o evdi_painter.o evdi_params.o evdi_cursor.o evdi_debug.o
+evdi-y := evdi_platform_drv.o evdi_platform_dev.o evdi_sysfs.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_drm_drv.o evdi_fb.o evdi_gem.o evdi_params.o evdi_cursor.o evdi_debug.o
 evdi-$(CONFIG_COMPAT) += evdi_ioc32.o
 obj-$(CONFIG_DRM_LINDROID_EVDI) := evdi.o
 obj-y += tests/

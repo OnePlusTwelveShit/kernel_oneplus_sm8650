@@ -108,10 +108,7 @@ bool evdi_platform_device_is_free(struct platform_device *pdev)
 	struct evdi_platform_device_data *data = platform_get_drvdata(pdev);
 	struct evdi_device *evdi = data->drm_dev->dev_private;
 
-	if (evdi && !evdi_painter_is_connected(evdi->painter) &&
-	    !data->symlinked)
-		return true;
-	return false;
+	return (evdi && !data->symlinked);
 }
 
 void evdi_platform_device_link(struct platform_device *pdev,

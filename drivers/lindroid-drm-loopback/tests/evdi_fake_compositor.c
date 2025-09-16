@@ -61,9 +61,6 @@ void evdi_fake_compositor_connect(struct kunit *test, struct drm_device *device)
 	struct evdi_fake_compositor_data *compositor_data = resource->data;
 	struct evdi_device *evdi = (struct evdi_device *)device->dev_private;
 
-	evdi_painter_set_scanout_buffer(evdi->painter, compositor_data->efb);
-	evdi_painter_mode_changed_notify(evdi, &compositor_data->mode);
-	evdi_painter_dpms_notify(evdi->painter, DRM_MODE_DPMS_ON);
 }
 
 void evdi_fake_compositor_disconnect(__maybe_unused struct kunit *test, __maybe_unused struct drm_device *device)

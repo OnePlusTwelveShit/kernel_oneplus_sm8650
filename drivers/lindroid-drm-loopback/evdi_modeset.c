@@ -86,19 +86,9 @@ static void evdi_crtc_atomic_flush(
 	crtc_state = crtc->state;
 #endif
 	evdi = crtc->dev->dev_private;
-	notify_mode_changed = crtc_state->active &&
-			   (crtc_state->mode_changed || evdi_painter_needs_full_modeset(evdi->painter));
-	notify_dpms = crtc_state->active_changed || evdi_painter_needs_full_modeset(evdi->painter);
+	notify_mode_changed = crtc_state->active && crtc_state->mode_changed;
+	notify_dpms = crtc_state->active_changed;
 
-	if (notify_mode_changed)
-		evdi_painter_mode_changed_notify(evdi, &crtc_state->adjusted_mode);
-
-	if (notify_dpms)
-		evdi_painter_dpms_notify(evdi->painter,
-			crtc_state->active ? DRM_MODE_DPMS_ON : DRM_MODE_DPMS_OFF);
-
-	evdi_painter_set_vblank(evdi->painter, crtc, crtc_state->event);
-	evdi_painter_send_update_ready_if_needed(evdi->painter);
 //	int ret = wait_event_interruptible(evdi->poll_response_ioct_wq, !evdi->poll_done);
 
 //	if (ret < 0) {
@@ -109,20 +99,11 @@ static void evdi_crtc_atomic_flush(
 		//return;
 	//}
 	//evdi->poll_done = false;
-	evdi_painter_send_vblank(evdi->painter);
 	crtc_state->event = NULL;
 }
 
 #if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE || defined(EL8)
 #else
-static void evdi_mark_full_screen_dirty(struct evdi_device *evdi)
-{
-	const struct drm_clip_rect rect =
-		evdi_painter_framebuffer_size(evdi->painter);
-	evdi_painter_mark_dirty(evdi, &rect);
-	evdi_painter_send_update_ready_if_needed(evdi->painter);
-}
-
 static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 				struct drm_file *file,
 				uint32_t handle,
@@ -170,14 +151,6 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	drm_gem_object_put_unlocked(obj);
 	#endif
 
-	/*
-	 * For now we don't care whether the application wanted the mouse set,
-	 * or not.
-	 */
-	if (evdi->cursor_events_enabled)
-		evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
-	else
-		evdi_mark_full_screen_dirty(evdi);
 	return 0;
 }
 
@@ -188,11 +161,6 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 
 	EVDI_CHECKPT();
 	evdi_cursor_move(evdi->cursor, x, y);
-
-	if (evdi->cursor_events_enabled)
-		evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
-	else
-		evdi_mark_full_screen_dirty(evdi);
 
 	return 0;
 }
@@ -255,8 +223,6 @@ int evdi_atomic_helper_page_flip(struct drm_crtc *crtc,
 
 	evdi_event_unlink_and_free(evdi, ev_event);
 
-	evdi_painter_send_vblank(evdi->painter);
-
 	return drm_atomic_helper_page_flip(crtc, fb, event, flags, ctx);
 }
 
@@ -298,8 +264,6 @@ static void evdi_plane_atomic_update(struct drm_plane *plane,
 
 #if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
 	struct drm_atomic_helper_damage_iter iter;
-	struct drm_rect rect;
-	struct drm_clip_rect clip_rect;
 #endif
 	if (!plane || !plane->state) {
 		EVDI_WARN("Plane state is null\n");
@@ -316,33 +280,11 @@ static void evdi_plane_atomic_update(struct drm_plane *plane,
 	painter = evdi->painter;
 	crtc = state->crtc;
 
-	if (!old_state->crtc && state->crtc)
-		evdi_painter_dpms_notify(evdi->painter, DRM_MODE_DPMS_ON);
-	else if (old_state->crtc && !state->crtc)
-		evdi_painter_dpms_notify(evdi->painter, DRM_MODE_DPMS_OFF);
-
 	if (state->fb) {
 		struct drm_framebuffer *fb = state->fb;
 		struct drm_framebuffer *old_fb = old_state->fb;
-		struct evdi_framebuffer *efb = to_evdi_fb(fb);
 
-		const struct drm_clip_rect fullscreen_rect = {
-			0, 0, fb->width, fb->height
-		};
-
-		if (!old_fb && crtc)
-			evdi_painter_force_full_modeset(painter);
-
-		if (old_fb &&
-		    fb->format && old_fb->format &&
-		    fb->format->format != old_fb->format->format)
-			evdi_painter_force_full_modeset(painter);
-
-		if (fb != old_fb ||
-		    evdi_painter_needs_full_modeset(painter)) {
-
-			evdi_painter_set_scanout_buffer(painter, efb);
-
+		if (fb != old_fb) {
 #if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
 			state->visible = true;
 			state->src.x1 = 0;
@@ -351,19 +293,9 @@ static void evdi_plane_atomic_update(struct drm_plane *plane,
 			state->src.y2 = fb->height << 16;
 
 			drm_atomic_helper_damage_iter_init(&iter, old_state, state);
-			while (drm_atomic_helper_damage_iter_next(&iter, &rect)) {
-				clip_rect.x1 = rect.x1;
-				clip_rect.y1 = rect.y1;
-				clip_rect.x2 = rect.x2;
-				clip_rect.y2 = rect.y2;
-				evdi_painter_mark_dirty(evdi, &clip_rect);
-			}
 #endif
 
 		};
-
-		if (evdi_painter_get_num_dirts(painter) == 0)
-			evdi_painter_mark_dirty(evdi, &fullscreen_rect);
 	}
 }
 
@@ -434,22 +366,10 @@ static void evdi_cursor_atomic_update(struct drm_plane *plane,
 				if (efb->obj->allow_sw_cursor_rect_updates) {
 					evdi_cursor_atomic_get_rect(&old_rect, old_state);
 					evdi_cursor_atomic_get_rect(&rect, state);
-
-					evdi_painter_mark_dirty(evdi, &old_rect);
-				} else {
-					rect = evdi_painter_framebuffer_size(evdi->painter);
 				}
-				evdi_painter_mark_dirty(evdi, &rect);
 			}
 			return;
 		}
-
-		if (cursor_changed)
-			evdi_painter_send_cursor_set(evdi->painter,
-						     evdi->cursor);
-		if (cursor_position_changed)
-			evdi_painter_send_cursor_move(evdi->painter,
-						      evdi->cursor);
 	}
 }
 
