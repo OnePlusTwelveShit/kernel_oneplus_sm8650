@@ -131,6 +131,7 @@ struct evdi_kreq {
 	int			result;
 	void			*reply;
 };
+static struct kmem_cache *evdi_kreq_cache;
 
 #define EVDI_MAX_FDS   32
 #define EVDI_MAX_INTS  256
@@ -323,6 +324,16 @@ static int evdi_event_cache_get(void)
 			return -ENOMEM;
 	}
 	atomic_inc(&evdi_event_cache_users);
+	if (!evdi_kreq_cache) {
+		evdi_kreq_cache = kmem_cache_create("evdi_kreq",
+			sizeof(struct evdi_kreq), 0, SLAB_HWCACHE_ALIGN, NULL);
+		if (!evdi_kreq_cache) {
+			kmem_cache_destroy(evdi_event_cache);
+			evdi_event_cache = NULL;
+			atomic_dec(&evdi_event_cache_users);
+			return -ENOMEM;
+		}
+	}
 	return 0;
 }
 
@@ -331,6 +342,10 @@ static void evdi_event_cache_put(void)
 	if (atomic_dec_and_test(&evdi_event_cache_users) && evdi_event_cache) {
 		kmem_cache_destroy(evdi_event_cache);
 		evdi_event_cache = NULL;
+		if (evdi_kreq_cache) {
+			kmem_cache_destroy(evdi_kreq_cache);
+			evdi_kreq_cache = NULL;
+		}
 	}
 }
 
@@ -388,7 +403,7 @@ int evdi_swap_callback_ioctl(struct drm_device *drm_dev, void *data,
 	kreq->reply = NULL;
 	complete(&kreq->done);
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	evdi_event_unlink_and_free(evdi, event);
 	return 0;
@@ -426,7 +441,7 @@ int evdi_add_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 		kreq->reply = NULL;
 	}
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	evdi_event_unlink_and_free(evdi, event);
 	return 0;
@@ -513,7 +528,7 @@ int evdi_get_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 		kreq->reply = NULL;
 	}
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	evdi_event_unlink_and_free(evdi, event);
 	return 0;
@@ -542,7 +557,7 @@ int evdi_destroy_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 	kreq->reply = NULL;
 	complete(&kreq->done);
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	evdi_event_unlink_and_free(evdi, event);
 	return 0;
@@ -581,7 +596,8 @@ int evdi_create_buff_callback_ioctl(struct drm_device *drm_dev, void *data,
 		kreq->reply = NULL;
 	}
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
+
 	evdi_event_unlink_and_free(evdi, event);
 	return 0;
 }
@@ -683,7 +699,7 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 	if (!event)
 		return -ENOMEM;
 
-	kreq = kzalloc(sizeof(*kreq), GFP_KERNEL);
+	kreq = kmem_cache_zalloc(evdi_kreq_cache, GFP_KERNEL);
 	if (!kreq)
 		return -ENOMEM;
 
@@ -702,14 +718,14 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 		EVDI_ERROR("evdi_gbm_add_buf_ioctl: wait failed: %d\n", ret);
 		atomic_set(&kreq->waiter_gone, 1);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret ? ret : -ETIMEDOUT;
 	}
 	if (kreq->result < 0) {
 		int err = kreq->result;
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return err;
 	}
@@ -718,7 +734,7 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 		kfree(kreq->reply);
 	}
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	return 0;
 }
@@ -740,7 +756,7 @@ int evdi_gbm_get_buf_ioctl(struct drm_device *dev, void *data,
 	if (!event)
 		return -ENOMEM;
 
-	kreq = kzalloc(sizeof(*kreq), GFP_KERNEL);
+	kreq = kmem_cache_zalloc(evdi_kreq_cache, GFP_KERNEL);
 	if (!kreq)
 		return -ENOMEM;
 
@@ -760,7 +776,7 @@ int evdi_gbm_get_buf_ioctl(struct drm_device *dev, void *data,
 		kfree(gralloc_buf);
 		atomic_set(&kreq->waiter_gone, 1);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret ? ret : -ETIMEDOUT;
 	}
@@ -768,7 +784,7 @@ int evdi_gbm_get_buf_ioctl(struct drm_device *dev, void *data,
 		ret = kreq->result;
 		kfree(gralloc_buf);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret;
 	}
@@ -818,7 +834,7 @@ int evdi_gbm_get_buf_ioctl(struct drm_device *dev, void *data,
 		kfree(gralloc_buf_tmp);
 
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	return 0;
 
@@ -833,7 +849,7 @@ err_event:
 	};
 	atomic_set(&kreq->waiter_gone, 1);
 	if (refcount_dec_and_test(&kreq->refs)) {
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 	}
 	return ret ? ret : -ETIMEDOUT;
 }
@@ -851,7 +867,7 @@ int evdi_gbm_del_buf_ioctl(struct drm_device *dev, void *data,
 	if (!event)
 		return -ENOMEM;
 
-	kreq = kzalloc(sizeof(*kreq), GFP_KERNEL);
+	kreq = kmem_cache_zalloc(evdi_kreq_cache, GFP_KERNEL);
 	if (!kreq)
 		return -ENOMEM;
 
@@ -869,14 +885,14 @@ int evdi_gbm_del_buf_ioctl(struct drm_device *dev, void *data,
 		EVDI_ERROR("evdi_gbm_del_buf_ioctl: wait timed out\n");
 		atomic_set(&kreq->waiter_gone, 1);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return -ETIMEDOUT;
 	} else if (ret < 0) {
 		EVDI_ERROR("evdi_gbm_get_buf_ioctl: wait_event_interruptible interrupted: %d\n", ret);
 		atomic_set(&kreq->waiter_gone, 1);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret;
 	}
@@ -886,7 +902,7 @@ int evdi_gbm_del_buf_ioctl(struct drm_device *dev, void *data,
 		EVDI_ERROR("evdi_gbm_get_buf_ioctl: user ioctl failled\n");
 
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	return ret ? ret : 0;
 }
@@ -903,7 +919,7 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 	if (!event)
 		return -ENOMEM;
 
-	kreq = kzalloc(sizeof(*kreq), GFP_KERNEL);
+	kreq = kmem_cache_zalloc(evdi_kreq_cache, GFP_KERNEL);
 	if (!kreq)
 		return -ENOMEM;
 
@@ -922,14 +938,14 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 		EVDI_ERROR("evdi_gbm_create_buff: wait failed: %d\n", ret);
 		atomic_set(&kreq->waiter_gone, 1);
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret ? ret : -ETIMEDOUT;
 	}
 	if (kreq->result < 0) {
 		ret = kreq->result;
 		if (refcount_dec_and_test(&kreq->refs)) {
-			kfree(kreq);
+			kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		return ret;
 	}
@@ -942,7 +958,7 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 
 	kfree(cb_cmd);
 	if (refcount_dec_and_test(&kreq->refs))
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 
 	return 0;
 
@@ -952,7 +968,7 @@ err_event:
 	}
 	atomic_set(&kreq->waiter_gone, 1);
 	if (refcount_dec_and_test(&kreq->refs)) {
-		kfree(kreq);
+		kmem_cache_free(evdi_kreq_cache, kreq);
 	}
 	return ret ? ret : -ETIMEDOUT;
 }
@@ -1109,7 +1125,7 @@ static void evdi_cancel_events_for_file(struct evdi_device *evdi,
 			kreq->result = -ECANCELED;
 			complete_all(&kreq->done);
 			if (refcount_dec_and_test(&kreq->refs))
-				kfree(kreq);
+				kmem_cache_free(evdi_kreq_cache, kreq);
 		}
 		evdi_event_free(event);
 	}
