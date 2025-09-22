@@ -715,7 +715,8 @@ int evdi_gbm_add_buf_ioctl(struct drm_device *dev, void *data,
 	kreq->reply = NULL;
 	event->reply_data = kreq;
 
-	wake_up_interruptible(&evdi->poll_ioct_wq);
+	if (waitqueue_active(&evdi->poll_ioct_wq))
+		wake_up_interruptible(&evdi->poll_ioct_wq);
 
 	ret = wait_for_completion_interruptible_timeout(&kreq->done, EVDI_WAIT_TIMEOUT);
 	if (ret <= 0) {
@@ -772,7 +773,8 @@ int evdi_gbm_get_buf_ioctl(struct drm_device *dev, void *data,
 	kreq->reply = NULL;
 	event->reply_data = kreq;
 
-	wake_up_interruptible(&evdi->poll_ioct_wq);
+	if (waitqueue_active(&evdi->poll_ioct_wq))
+		wake_up_interruptible(&evdi->poll_ioct_wq);
 
 	ret = wait_for_completion_interruptible_timeout(&kreq->done, EVDI_WAIT_TIMEOUT);
 	if (unlikely(ret <= 0)) {
@@ -883,7 +885,9 @@ int evdi_gbm_del_buf_ioctl(struct drm_device *dev, void *data,
 	kreq->reply = NULL;
 	event->reply_data = kreq;
 
-	wake_up_interruptible(&evdi->poll_ioct_wq);
+	if (waitqueue_active(&evdi->poll_ioct_wq))
+		wake_up_interruptible(&evdi->poll_ioct_wq);
+
 	ret = wait_for_completion_interruptible_timeout(&kreq->done, EVDI_WAIT_TIMEOUT);
 	if (ret == 0) {
 		EVDI_ERROR("evdi_gbm_del_buf_ioctl: wait timed out\n");
@@ -935,7 +939,8 @@ int evdi_gbm_create_buff (struct drm_device *dev, void *data,
 	kreq->reply = NULL;
 	event->reply_data = kreq;
 
-	wake_up_interruptible(&evdi->poll_ioct_wq);
+	if (waitqueue_active(&evdi->poll_ioct_wq))
+		wake_up_interruptible(&evdi->poll_ioct_wq);
 
 	ret = wait_for_completion_interruptible_timeout(&kreq->done, EVDI_WAIT_TIMEOUT);
 	if (ret <= 0) {
