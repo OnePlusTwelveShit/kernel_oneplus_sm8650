@@ -933,7 +933,7 @@ static int oplus_tp_notifier_call(struct notifier_block *nb, unsigned long val, 
 
             wake_lock_timeout(&fp_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_IRQ_TIME));
             if (1 == tp_info->touch_state) {
-                cpu_boost_all(500);
+                cpu_boost_max(500);
                 fp_enable_intr3(fp_dev);
                 pr_info("%s touch down touchdown\n", __func__);
                 msg = NETLINK_EVENT_TP_TOUCHDOWN;
